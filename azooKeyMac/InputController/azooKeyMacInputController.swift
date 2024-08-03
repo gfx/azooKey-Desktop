@@ -83,7 +83,18 @@ class azooKeyMacInputController: IMKInputController {
         // Initialize the candidates window
         self.candidatesViewController = CandidatesViewController()
         self.candidatesWindow = NSWindow(contentViewController: self.candidatesViewController)
+        self.candidatesWindow.styleMask = [.borderless, .resizable]
         self.candidatesWindow.level = .popUpMenu
+
+        var rect: NSRect = .zero
+        if let client = inputClient as? IMKTextInput {
+            client.attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
+        }
+        rect.size = .init(width: 400, height: 200)
+        self.candidatesWindow.setFrame(rect, display: true)
+        // init直後はこれを表示しない
+        self.candidatesWindow.setIsVisible(false)
+        self.candidatesWindow.orderOut(nil)
 
         super.init(server: server, delegate: delegate, client: inputClient)
         self.setupMenu()
@@ -92,19 +103,26 @@ class azooKeyMacInputController: IMKInputController {
     @MainActor
     override func activateServer(_ sender: Any!) {
         super.activateServer(sender)
-        // MARK: this is required to move the window front of the spotlight panel
-        self.candidatesWindow.level = .popUpMenu
-        self.candidatesWindow.orderFront(nil)
-
         // アプリケーションサポートのディレクトリを準備しておく
         self.prepareApplicationSupportDirectory()
         self.updateZenzaiToggleMenuItem(newValue: self.zenzaiEnabled)
         self.updateLiveConversionToggleMenuItem(newValue: self.liveConversionEnabled)
         self.updateEnglishConversionToggleMenuItem(newValue: self.englishConversionEnabled)
         self.kanaKanjiConverter.sendToDicdataStore(.setRequestOptions(options()))
+
+        // MARK: this is required to move the window front of the spotlight panel
+        self.candidatesWindow.level = .popUpMenu
+        self.candidatesWindow.orderFront(nil)
         if let client = sender as? IMKTextInput {
             client.overrideKeyboard(withKeyboardNamed: "com.apple.keylayout.US")
+            var rect: NSRect = .zero
+            client.attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
+            self.candidatesViewController.updateCandidates([], cursorLocation: rect.origin)
+        } else {
+            self.candidatesViewController.updateCandidates([], cursorLocation: .zero)
         }
+        // activate直後はwindowをhideする
+        self.hideCandidateWindow()
     }
 
     @MainActor
@@ -113,6 +131,7 @@ class azooKeyMacInputController: IMKInputController {
         self.kanaKanjiConverter.sendToDicdataStore(.setRequestOptions(options()))
         self.kanaKanjiConverter.sendToDicdataStore(.closeKeyboard)
         self.candidatesWindow.orderOut(nil)
+        self.candidatesViewController.updateCandidates([], cursorLocation: .zero)
         self.rawCandidates = nil
         self.displayedTextInComposingMode = nil
         self.composingText.stopComposition()
@@ -193,11 +212,15 @@ class azooKeyMacInputController: IMKInputController {
     }
 
     func showCandidateWindow() {
-        self.candidatesViewController.updateCandidates(self.rawCandidates?.mainResults.map { $0.text } ?? [])
+        var rect: NSRect = .zero
+        self.candidatesWindow.setIsVisible(true)
+        self.client().attributes(forCharacterIndex: 0, lineHeightRectangle: &rect)
+        self.candidatesViewController.updateCandidates(self.rawCandidates?.mainResults.map { $0.text } ?? [], cursorLocation: rect.origin)
         self.candidatesWindow.orderFront(nil)
     }
 
     func hideCandidateWindow() {
+        self.candidatesWindow.setIsVisible(false)
         self.candidatesWindow.orderOut(nil)
     }
 
